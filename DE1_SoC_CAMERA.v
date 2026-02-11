@@ -352,6 +352,22 @@ gray_window_3x3 u_win (
 );
 
 assign pix12 = win_valid ? w11 : gray12;  // or 12'd0 if you want black border
+
+
+wire [11:0] proc_pix12;
+wire        proc_win_valid;
+
+image_proc #(.MAG_SHIFT(4)) u_proc (
+  .iCLK      (D5M_PIXLCLK),
+  .iRST_N    (DLY_RST_1),
+  .iDVAL     (gray_dval),
+  .iGRAY     (gray12),
+  .oDVAL     (),              // you can ignore; we keep cadence = input
+  .oPIX12    (proc_pix12),
+  .oWIN_VALID(proc_win_valid) // optional
+);
+
+
 // additions
 
 //Frame count display
@@ -398,13 +414,20 @@ sdram_pll 			u6	(
 // .WR2_DATA({1'b0, pix12[6:2],  pix12[11:2]}),
 // .WR2(gray_dval),
 
+// NOW WITH CONVOLUTION
+//.WR1_DATA({1'b0, proc_pix12[11:7], proc_pix12[11:2]}),
+//.WR1(gray_dval),
+
+//.WR2_DATA({1'b0, proc_pix12[6:2],  proc_pix12[11:2]}),
+//.WR2(gray_dval),
+
 //SDRam Read and Write as Frame Buffer
 Sdram_Control	   u7	(	//	HOST Side						
 						   .RESET_N(KEY[0]),
 							.CLK(sdram_ctrl_clk),
 
 							//	FIFO Write Side 1
-							.WR1_DATA({1'b0, pix12[11:7], pix12[11:2]}),
+							.WR1_DATA({1'b0, proc_pix12[11:7], proc_pix12[11:2]}),
 							.WR1(gray_dval),
 							.WR1_ADDR(0),
                      .WR1_MAX_ADDR(640*480),
@@ -413,7 +436,7 @@ Sdram_Control	   u7	(	//	HOST Side
 							.WR1_CLK(~D5M_PIXLCLK),
 
 							//	FIFO Write Side 2
-							.WR2_DATA({1'b0, pix12[6:2],  pix12[11:2]}),
+							.WR2_DATA({1'b0, proc_pix12[6:2],  proc_pix12[11:2]}),
 							.WR2(gray_dval),
 							.WR2_ADDR(23'h100000),
 							.WR2_MAX_ADDR(23'h100000+640*480),
