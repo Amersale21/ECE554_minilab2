@@ -340,6 +340,7 @@ assign gray12     = gray_sum[13:2];   // divide by 4, //>>2 divide-by-4, stays 1
 assign gray_dval  = sCCD_DVAL;
 
 
+/*
 gray_window_3x3 u_win (
   .iCLK   (D5M_PIXLCLK),
   .iRST_N (DLY_RST_1),      // active-low reset expected
@@ -350,22 +351,26 @@ gray_window_3x3 u_win (
   .w10(w10),.w11(w11),.w12(w12),
   .w20(w20),.w21(w21),.w22(w22)
 );
+*/
 
-assign pix12 = win_valid ? w11 : gray12;  // or 12'd0 if you want black border
-
+// assign pix12 = win_valid ? w11 : gray12;  // or 12'd0 if you want black border
+// still need to write one switch makes the color to gray scale and another to got to horizontal and another for veritcal
 
 wire [11:0] proc_pix12;
 wire        proc_win_valid;
+wire oDVAL_ip;
 
 image_proc #(.MAG_SHIFT(4)) u_proc (
   .iCLK      (D5M_PIXLCLK),
   .iRST_N    (DLY_RST_1),
   .iDVAL     (gray_dval),
   .iGRAY     (gray12),
-  .oDVAL     (),              // you can ignore; we keep cadence = input
+  .iMODE     (1'b0), // 0 for horizontal, 1 for vertical, you can add more
+  .oDVAL     (oDVAL_ip),
   .oPIX12    (proc_pix12),
-  .oWIN_VALID(proc_win_valid) // optional
+  .oWIN_VALID(proc_win_valid) 
 );
+
 
 
 // additions
@@ -428,7 +433,7 @@ Sdram_Control	   u7	(	//	HOST Side
 
 							//	FIFO Write Side 1
 							.WR1_DATA({1'b0, proc_pix12[11:7], proc_pix12[11:2]}),
-							.WR1(gray_dval),
+							.WR1(oDVAL_ip), // coming from image_proc
 							.WR1_ADDR(0),
                      .WR1_MAX_ADDR(640*480),
 						   .WR1_LENGTH(8'h50),
@@ -437,7 +442,7 @@ Sdram_Control	   u7	(	//	HOST Side
 
 							//	FIFO Write Side 2
 							.WR2_DATA({1'b0, proc_pix12[6:2],  proc_pix12[11:2]}),
-							.WR2(gray_dval),
+							.WR2(oDVAL_ip), // coming from image_proc
 							.WR2_ADDR(23'h100000),
 							.WR2_MAX_ADDR(23'h100000+640*480),
 							.WR2_LENGTH(8'h50),
