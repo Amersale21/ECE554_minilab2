@@ -1,13 +1,14 @@
 // image_proc.sv
+// Two-mode Sobel - horizontal and vertical
+//   iMODE = 0 -> use |Gx|  (x-derivative, highlights VERTICAL edges)
+//   iMODE = 1 -> use |Gy|  (y-derivative, highlights HORIZONTAL edges)
+//
 // - Input: 12-bit grayscale stream + iDVAL (640-wide active pixels)
-// - Builds 3x3 window via gray_window_3x3 (your module)
-// - Computes Sobel Gx/Gy, magnitude approx = |Gx| + |Gy|
-// - Edge handling: when window invalid, passthrough original gray
+// - Builds 3x3 window via gray_window_3x3
 // - Output cadence: oDVAL = iDVAL (DO NOT gate frame-buffer writes)
+// - Edge handling: when window invalid, passthrough original gray
 
 module image_proc #(
-    // Adjust this if the image is too bright or too dim.
-    // magnitude can be up to ~32760; shifting right by 3..5 is common.
     parameter int MAG_SHIFT = 4
 ) (
     input  logic        iCLK,
@@ -15,9 +16,11 @@ module image_proc #(
     input  logic        iDVAL,
     input  logic [11:0] iGRAY,
 
+    input  logic        iMODE,    // 0: |Gx|, 1: |Gy|
+
     output logic        oDVAL,
-    output logic [11:0] oPIX12,   // processed pixel (12-bit), ready for R=G=B
-    output logic        oWIN_VALID // debug/optional: window valid (edges omitted)
+    output logic [11:0] oPIX12,
+    output logic        oWIN_VALID
 );
 
     // 3x3 window outputs
@@ -37,22 +40,14 @@ module image_proc #(
         .w20(w20), .w21(w21), .w22(w22)
     );
 
-    // expose for debug
     assign oWIN_VALID = win_valid;
+    assign oDVAL      = iDVAL;
 
-    // Keep cadence identical to input stream (important for SDRAM layout)
-    assign oDVAL = iDVAL;
-
-    // -----------------------------
-    // Sobel math (combinational)
-    // Gx = (w02 + 2*w12 + w22) - (w00 + 2*w10 + w20)
-    // Gy = (w20 + 2*w21 + w22) - (w00 + 2*w01 + w02)
-    // magnitude ≈ |Gx| + |Gy|
-    // -----------------------------
-    logic signed [16:0] gx, gy;        // signed enough for ~±16380
+    // Sobel math
+    logic signed [16:0] gx, gy;
     logic        [16:0] abs_gx, abs_gy;
-    logic        [17:0] mag;           // up to ~32760
-    logic        [17:0] mag_shifted;   // after shift
+    logic        [17:0] mag;
+    logic        [17:0] mag_shifted;
     logic        [11:0] sobel_pix;
 
     function automatic [16:0] uabs17(input logic signed [16:0] v);
@@ -73,13 +68,17 @@ module image_proc #(
         s21 = $signed({5'd0, w21});
         s22 = $signed({5'd0, w22});
 
+        // Gx: x-derivative (highlights vertical edges)
         gx = (s02 + (s12 <<< 1) + s22) - (s00 + (s10 <<< 1) + s20);
+
+        // Gy: y-derivative (highlights horizontal edges)
         gy = (s20 + (s21 <<< 1) + s22) - (s00 + (s01 <<< 1) + s02);
 
         abs_gx = uabs17(gx);
         abs_gy = uabs17(gy);
 
-        mag = {1'b0, abs_gx} + {1'b0, abs_gy}; // 18-bit unsigned
+        // Select ONE direction (no combining)
+        mag = (iMODE == 1'b0) ? {1'b0, abs_gx} : {1'b0, abs_gy};
 
         // scale down for display
         mag_shifted = (MAG_SHIFT >= 0) ? (mag >> MAG_SHIFT) : mag;
@@ -91,7 +90,6 @@ module image_proc #(
             sobel_pix = mag_shifted[11:0];
 
         // Edge handling: omit window pixels by passthrough (or set to 0 if you prefer)
-        // IMPORTANT: do NOT gate oDVAL based on win_valid.
         oPIX12 = win_valid ? sobel_pix : iGRAY;
     end
 
